@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Activity, Database, TrendingUp, AlertTriangle, Network, Shield, Clock, Target } from 'lucide-react';
+import { Activity, Database, TrendingUp, AlertTriangle, Network, Shield, Clock, Target, Globe, ExternalLink } from 'lucide-react';
 
 const CombinedSecurityDashboard = () => {
   const [data, setData] = useState([]);
   const [portScanAnalysis, setPortScanAnalysis] = useState(null);
   const [bruteForceAnalysis, setBruteForceAnalysis] = useState(null);
+  const [httpAnalysis, setHttpAnalysis] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -16,6 +17,7 @@ const CombinedSecurityDashboard = () => {
 
   const loadAndAnalyzeData = async () => {
     try {
+      // Load TCP data
       let fileData = '';
       if (typeof window !== 'undefined' && (window as any).fs && typeof (window as any).fs.readFile === 'function') {
         // Electron / custom preload
@@ -51,7 +53,22 @@ const CombinedSecurityDashboard = () => {
       setData(parsedData);
       analyzePortScanning(parsedData);
       analyzeSSHBruteForce(parsedData);
+      
+      // Set loading to false FIRST so dashboard shows immediately
       setLoading(false);
+      
+      // Load HTTP analysis asynchronously (non-blocking)
+      try {
+        const httpResponse = await fetch('/api/parse-http');
+        if (httpResponse.ok) {
+          const httpData = await httpResponse.json();
+          setHttpAnalysis(httpData);
+        } else {
+          console.error('HTTP API returned error:', httpResponse.status);
+        }
+      } catch (error) {
+        console.error('Error loading HTTP data:', error);
+      }
     } catch (error) {
       console.error('Error loading data:', error);
       setLoading(false);
@@ -450,6 +467,123 @@ const CombinedSecurityDashboard = () => {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* HTTP Request Analysis */}
+        {httpAnalysis && httpAnalysis.summary && httpAnalysis.summary.totalRequests > 0 && (
+          <div className="mb-8">
+            <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
+              <Globe className="w-6 h-6 text-blue-400" />
+              HTTP Request Analysis
+            </h2>
+            
+            {/* HTTP Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                <div className="text-slate-400 text-sm mb-1">Total Requests</div>
+                <div className="text-white text-2xl font-bold">{httpAnalysis.summary.totalRequests}</div>
+              </div>
+              <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                <div className="text-slate-400 text-sm mb-1">Unique Hosts</div>
+                <div className="text-white text-2xl font-bold">{httpAnalysis.summary.uniqueHosts.length}</div>
+              </div>
+              <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                <div className="text-slate-400 text-sm mb-1">Metadata Requests</div>
+                <div className="text-yellow-400 text-2xl font-bold">{httpAnalysis.summary.metadataRequests}</div>
+              </div>
+              <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                <div className="text-slate-400 text-sm mb-1">AWS Metadata</div>
+                <div className="text-red-400 text-2xl font-bold">{httpAnalysis.summary.suspiciousPatterns.awsMetadata}</div>
+              </div>
+            </div>
+
+            {/* Suspicious HTTP Activity */}
+            {(httpAnalysis.summary.suspiciousPatterns.metadataAPI > 0 || httpAnalysis.summary.suspiciousPatterns.cloudInit > 0) && (
+              <div className="bg-red-900 bg-opacity-30 border-2 border-red-500 rounded-lg p-6 mb-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <AlertTriangle className="w-8 h-8 text-red-400" />
+                  <div>
+                    <h3 className="text-xl font-bold text-red-400">Suspicious HTTP Activity Detected</h3>
+                    <p className="text-red-300 text-sm">Cloud metadata API access attempts detected</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-slate-800 bg-opacity-50 rounded p-4">
+                    <div className="text-red-400 text-sm mb-1">Metadata API Requests</div>
+                    <div className="text-white text-2xl font-bold">{httpAnalysis.summary.suspiciousPatterns.metadataAPI}</div>
+                  </div>
+                  <div className="bg-slate-800 bg-opacity-50 rounded p-4">
+                    <div className="text-red-400 text-sm mb-1">AWS Metadata (169.254.169.254)</div>
+                    <div className="text-white text-2xl font-bold">{httpAnalysis.summary.suspiciousPatterns.awsMetadata}</div>
+                  </div>
+                  <div className="bg-slate-800 bg-opacity-50 rounded p-4">
+                    <div className="text-red-400 text-sm mb-1">Cloud-Init Requests</div>
+                    <div className="text-white text-2xl font-bold">{httpAnalysis.summary.suspiciousPatterns.cloudInit}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* HTTP Requests with meta-data in URI */}
+            <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+              <h3 className="text-lg font-bold text-white mb-4">
+                HTTP Requests
+              </h3>
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {httpAnalysis.requests
+                  .filter((req: any) => req.uri.includes('meta-data'))
+                  .slice(0, 20)
+                  .map((req: any, idx: number) => (
+                    <div key={idx} className="bg-slate-700 rounded-lg p-4 border border-slate-600">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="bg-green-600 text-white px-2 py-1 rounded text-xs font-bold">
+                            {req.method}
+                          </span>
+                          <span className="text-slate-400 text-xs">
+                            {new Date(req.timestampMs).toLocaleTimeString()}
+                          </span>
+                        </div>
+                        {req.responseStatus && (
+                          <span className={`px-2 py-1 rounded text-xs font-bold ${
+                            req.responseStatus < 300 ? 'bg-green-600 text-white' :
+                            req.responseStatus < 400 ? 'bg-yellow-600 text-white' :
+                            'bg-red-600 text-white'
+                          }`}>
+                            {req.responseStatus}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-white font-mono text-sm mb-2">
+                        <span className="text-blue-300">{req.srcIP}:{req.srcPort}</span>
+                        <span className="mx-2 text-slate-500">→</span>
+                        <span className="text-green-300">{req.dstIP}:{req.dstPort}</span>
+                      </div>
+                      <div className="text-slate-300 text-sm mb-2">
+                        <ExternalLink className="w-4 h-4 inline mr-1" />
+                        <span className="font-semibold">{req.host || 'Unknown Host'}</span>
+                        <span className="text-yellow-300 ml-2">{req.uri}</span>
+                      </div>
+                      {req.userAgent && (
+                        <div className="text-slate-400 text-xs truncate">
+                          User-Agent: {req.userAgent}
+                        </div>
+                      )}
+                      {req.responseTime && (
+                        <div className="text-green-400 text-xs mt-1">
+                          Response Time: {(req.responseTime * 1000).toFixed(2)}ms
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                {httpAnalysis.requests.filter((req: any) => req.uri.includes('meta-data')).length === 0 && (
+                  <div className="text-slate-400 text-center py-8">
+                    No requests with "meta-data" in URI found
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

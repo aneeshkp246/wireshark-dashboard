@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, Pause, SkipForward, SkipBack, AlertCircle, CheckCircle, Info, Zap, Network, Database, Code, Filter, Search, Download } from 'lucide-react';
+import PacketFlowDiagram from '@/components/PacketFlowDiagram';
 
 interface PacketData {
   id: number;
@@ -31,9 +32,17 @@ interface PacketSummary {
   httpResponses: number;
 }
 
+interface PacketMeta {
+  totalPackets: number;
+  returnedPackets: number;
+  limit: number;
+  truncated: boolean;
+}
+
 const PacketReplay = () => {
   const [packets, setPackets] = useState<PacketData[]>([]);
   const [summary, setSummary] = useState<PacketSummary | null>(null);
+  const [meta, setMeta] = useState<PacketMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPacketIndex, setCurrentPacketIndex] = useState(0);
@@ -43,6 +52,7 @@ const PacketReplay = () => {
   const [filterProtocol, setFilterProtocol] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [showPayload, setShowPayload] = useState(true);
+  const [httpURIFilter, setHttpURIFilter] = useState('');
   
   const animationRef = useRef<number | null>(null);
   const lastUpdateRef = useRef<number>(0);
@@ -88,6 +98,8 @@ const PacketReplay = () => {
       const data = await response.json();
       setPackets(data.packets || []);
       setSummary(data.summary);
+      setMeta(data.meta || null);
+      setCurrentPacketIndex(0);
       if (data.packets && data.packets.length > 0) {
         setSelectedPacket(data.packets[0]);
       }
@@ -134,6 +146,13 @@ const PacketReplay = () => {
         p.protocol.toLowerCase().includes(term) ||
         p.info.toLowerCase().includes(term) ||
         (p.httpPath && p.httpPath.toLowerCase().includes(term))
+      );
+    }
+    
+    // HTTP URI filter (like Wireshark's http.request.uri contains)
+    if (httpURIFilter) {
+      filtered = filtered.filter(p => 
+        p.httpPath && p.httpPath.toLowerCase().includes(httpURIFilter.toLowerCase())
       );
     }
     
@@ -198,6 +217,7 @@ const PacketReplay = () => {
 
   const filteredPackets = getFilteredPackets();
   const currentPacket = packets[currentPacketIndex];
+  const sliderMaxIndex = packets.length > 0 ? packets.length - 1 : 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
@@ -256,6 +276,12 @@ const PacketReplay = () => {
           </div>
         )}
 
+        {meta?.truncated && (
+          <div className="bg-blue-900 bg-opacity-30 border border-blue-500 rounded-lg p-4 mb-8 text-sm text-blue-200">
+            Showing first {meta.returnedPackets.toLocaleString()} packets out of {meta.totalPackets.toLocaleString()} total. Adjust filters or call <code className="bg-slate-900 px-1 py-0.5 rounded">/api/parse-pcap?limit=</code> with a higher value to load more.
+          </div>
+        )}
+
         {/* Playback Controls */}
         <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-8">
           <div className="flex items-center gap-4 mb-4">
@@ -305,11 +331,13 @@ const PacketReplay = () => {
                 <input
                   type="range"
                   min="0"
-                  max={packets.length - 1}
-                  value={currentPacketIndex}
+                  max={sliderMaxIndex}
+                  value={Math.min(currentPacketIndex, sliderMaxIndex)}
+                  disabled={packets.length === 0}
                   onChange={(e) => {
-                    setCurrentPacketIndex(parseInt(e.target.value));
-                    setSelectedPacket(packets[parseInt(e.target.value)]);
+                    const nextIndex = parseInt(e.target.value, 10);
+                    setCurrentPacketIndex(nextIndex);
+                    setSelectedPacket(packets[nextIndex] ?? null);
                   }}
                   className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
@@ -320,37 +348,20 @@ const PacketReplay = () => {
               </div>
             </div>
           </div>
+        </div>
 
-          {/* Current Packet Visualization */}
-          {currentPacket && (
-            <div className="bg-gradient-to-r from-blue-900 to-purple-900 bg-opacity-30 rounded-lg p-4 border border-blue-500 animate-pulse">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className={`${getProtocolColor(currentPacket.protocol)} text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2`}>
-                    {getProtocolIcon(currentPacket.protocol)}
-                    {currentPacket.protocol}
-                  </div>
-                  <div className="text-white font-mono">
-                    <span className="text-blue-300">{currentPacket.srcIP}:{currentPacket.srcPort}</span>
-                    <span className="mx-2 text-slate-400">→</span>
-                    <span className="text-green-300">{currentPacket.dstIP}:{currentPacket.dstPort}</span>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-slate-300 text-sm">{formatTimestamp(currentPacket.timestamp)}</div>
-                  <div className="text-slate-400 text-xs">{formatBytes(currentPacket.length)}</div>
-                </div>
-              </div>
-              {currentPacket.info && (
-                <div className="mt-2 text-slate-300 text-sm">{currentPacket.info}</div>
-              )}
-            </div>
-          )}
+        {/* Packet Flow Diagram */}
+        <div className="mb-8">
+          <PacketFlowDiagram 
+            currentPacket={currentPacket}
+            packets={packets}
+            currentIndex={currentPacketIndex}
+          />
         </div>
 
         {/* Filters and Search */}
         <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-8">
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4 mb-4">
             <div className="flex items-center gap-2">
               <Filter className="w-5 h-5 text-slate-400" />
               <select
@@ -365,7 +376,7 @@ const PacketReplay = () => {
               </select>
             </div>
 
-            <div className="flex-1 relative">
+            <div className="flex-1 relative min-w-[200px]">
               <Search className="w-5 h-5 text-slate-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
               <input
                 type="text"
@@ -386,6 +397,27 @@ const PacketReplay = () => {
             >
               {showPayload ? 'Hide' : 'Show'} Payload
             </button>
+          </div>
+          
+          {/* HTTP URI Filter (like Wireshark) */}
+          <div className="flex items-center gap-2 pt-2 border-t border-slate-700">
+            <Code className="w-5 h-5 text-green-400" />
+            <span className="text-slate-400 text-sm">HTTP URI contains:</span>
+            <input
+              type="text"
+              placeholder='e.g. "meta-data" or "api"'
+              value={httpURIFilter}
+              onChange={(e) => setHttpURIFilter(e.target.value)}
+              className="flex-1 bg-slate-700 text-white px-4 py-2 rounded-lg border border-slate-600 focus:border-green-500 focus:outline-none text-sm"
+            />
+            {httpURIFilter && (
+              <button
+                onClick={() => setHttpURIFilter('')}
+                className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm"
+              >
+                Clear
+              </button>
+            )}
           </div>
         </div>
 
@@ -579,11 +611,67 @@ const PacketReplay = () => {
                       <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
                         <Code className="w-5 h-5 text-purple-400" />
                         Payload
+                        {(selectedPacket.httpMethod || selectedPacket.httpStatus) && (
+                          <span className="ml-2 text-xs bg-green-600 text-white px-2 py-1 rounded">
+                            HTTP
+                          </span>
+                        )}
                       </h3>
-                      <div className="bg-black bg-opacity-50 rounded p-3 overflow-x-auto">
-                        <pre className="text-green-400 text-xs font-mono whitespace-pre-wrap break-all">
-                          {selectedPacket.payload}
-                        </pre>
+                      <div className="bg-black bg-opacity-50 rounded p-3 overflow-x-auto max-h-96 overflow-y-auto">
+                        {/* Format HTTP payloads with syntax highlighting */}
+                        {(selectedPacket.httpMethod || selectedPacket.httpStatus) ? (
+                          <pre className="text-xs font-mono whitespace-pre-wrap break-words">
+                            {selectedPacket.payload.split('\r\n').map((line, idx) => {
+                              // HTTP method line
+                              if (idx === 0 && selectedPacket.httpMethod) {
+                                return (
+                                  <div key={idx} className="text-blue-400 font-bold mb-2">
+                                    {line}
+                                  </div>
+                                );
+                              }
+                              // HTTP response status line
+                              if (idx === 0 && selectedPacket.httpStatus) {
+                                const statusClass = selectedPacket.httpStatus < 300 ? 'text-green-400' :
+                                                   selectedPacket.httpStatus < 400 ? 'text-yellow-400' :
+                                                   'text-red-400';
+                                return (
+                                  <div key={idx} className={`${statusClass} font-bold mb-2`}>
+                                    {line}
+                                  </div>
+                                );
+                              }
+                              // Headers
+                              if (line.includes(':') && line.trim()) {
+                                const colonIndex = line.indexOf(':');
+                                const headerName = line.substring(0, colonIndex);
+                                const headerValue = line.substring(colonIndex + 1);
+                                return (
+                                  <div key={idx} className="mb-1">
+                                    <span className="text-cyan-400">{headerName}</span>
+                                    <span className="text-slate-400">:</span>
+                                    <span className="text-slate-300">{headerValue}</span>
+                                  </div>
+                                );
+                              }
+                              // Empty line (separator)
+                              if (!line.trim()) {
+                                return <div key={idx} className="h-4"></div>;
+                              }
+                              // Body content
+                              return (
+                                <div key={idx} className="text-yellow-300">
+                                  {line}
+                                </div>
+                              );
+                            })}
+                          </pre>
+                        ) : (
+                          /* Non-HTTP payload */
+                          <pre className="text-green-400 text-xs font-mono whitespace-pre-wrap break-all">
+                            {selectedPacket.payload}
+                          </pre>
+                        )}
                       </div>
                     </div>
                   )}

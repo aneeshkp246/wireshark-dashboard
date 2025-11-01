@@ -89,7 +89,7 @@ function parsePCAP(buffer: Buffer): PacketData[] {
         packets.push(parsed);
       }
 
-      if (packets.length >= 1000) break; // Limit packets
+      // No limit - parse all packets
     } catch (error) {
       console.error('Error parsing packet:', error);
       break;
@@ -305,9 +305,12 @@ function parsePacketData(
   }
 }
 
+const DEFAULT_PACKET_LIMIT = 2000;
+const MAX_PACKET_LIMIT = 10000;
+
 export async function GET(request: NextRequest) {
   try {
-    const pcapFilePath = path.join(process.cwd(), 'public', 'capture_%Y%m%d_%H%M%S_00001_20251012064811.pcap');
+    const pcapFilePath = path.join(process.cwd(), 'public', 'capture_%Y%m%d_%H%M%S_00001_20251023142449.pcap');
     
     if (!fs.existsSync(pcapFilePath)) {
       return NextResponse.json({ error: 'PCAP file not found' }, { status: 404 });
@@ -328,10 +331,27 @@ export async function GET(request: NextRequest) {
       httpResponses: packets.filter(p => p.httpStatus).length
     };
 
+    let packetLimit = DEFAULT_PACKET_LIMIT;
+    const limitParam = request.nextUrl.searchParams.get('limit');
+    if (limitParam) {
+      const parsedLimit = parseInt(limitParam, 10);
+      if (!Number.isNaN(parsedLimit) && parsedLimit > 0) {
+        packetLimit = Math.min(parsedLimit, MAX_PACKET_LIMIT);
+      }
+    }
+
+    const truncated = packets.length > packetLimit;
+    const limitedPackets = truncated ? packets.slice(0, packetLimit) : packets;
+
     return NextResponse.json({ 
-      packets,
-      totalPackets: packets.length,
-      summary
+      packets: limitedPackets,
+      summary,
+      meta: {
+        totalPackets: packets.length,
+        returnedPackets: limitedPackets.length,
+        limit: packetLimit,
+        truncated
+      }
     });
   } catch (error: any) {
     console.error('Error:', error);
