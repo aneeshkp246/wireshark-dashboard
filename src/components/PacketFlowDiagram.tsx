@@ -63,7 +63,7 @@ const PacketFlowDiagram: React.FC<PacketFlowDiagramProps> = ({ currentPacket, pa
     const portInfo = `(${currentPacket.srcPort} → ${currentPacket.dstPort})`;
     const flags = currentPacket.tcpFlags || [];
 
-    // Add new flow line with animation
+    // Replace with new single flow line
     const newLine: FlowLine = {
       id: currentPacket.id,
       direction: isLeftToRight ? 'left-to-right' : 'right-to-left',
@@ -72,22 +72,7 @@ const PacketFlowDiagram: React.FC<PacketFlowDiagramProps> = ({ currentPacket, pa
       animate: true,
     };
 
-    setFlowLines(prev => {
-      const updated = [...prev, newLine];
-      // Keep only last 10 lines for performance
-      return updated.slice(-10);
-    });
-
-    // Remove animation after delay
-    const timer = setTimeout(() => {
-      setFlowLines(prev =>
-        prev.map(line =>
-          line.id === currentPacket.id ? { ...line, animate: false } : line
-        )
-      );
-    }, 1000);
-
-    return () => clearTimeout(timer);
+    setFlowLines([newLine]);
   }, [currentPacket, leftDevice.ip, rightDevice.ip, packets]);
 
   if (!currentPacket) {
@@ -125,102 +110,101 @@ const PacketFlowDiagram: React.FC<PacketFlowDiagramProps> = ({ currentPacket, pa
           <div className="w-full h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-green-500 rounded-full shadow-lg mb-8"></div>
           
           {/* Packet flow area */}
-          <div className="space-y-4 min-h-[400px] max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+          <div className="flex items-center justify-center min-h-[400px]">
           {flowLines.map((line, index) => (
             <div
               key={line.id}
-              className={`relative transition-all duration-500 ${
-                line.animate ? 'opacity-100 translate-y-0' : 'opacity-70'
-              }`}
-              style={{
-                animation: line.animate ? 'slideIn 0.5s ease-out' : 'none',
-              }}
+              className="w-full"
             >
               {line.direction === 'left-to-right' ? (
                 // Left to Right Arrow
                 <div className="flex items-center gap-2">
-                  <div className="w-1/3"></div>
                   <div className="flex-1 relative">
-                    <div className={`relative ${line.animate ? 'animate-pulse' : ''}`}>
+                    <div className="relative">
                       {/* Arrow Line */}
-                      <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-400 to-green-400"></div>
-                      {/* Arrow Head */}
-                      <div className="absolute top-1/2 right-0 transform -translate-y-1/2">
-                        <div className="w-0 h-0 border-t-8 border-t-transparent border-b-8 border-b-transparent border-l-8 border-l-green-400"></div>
-                      </div>
-                      {/* Animated Dot */}
-                      {line.animate && (
-                        <div
-                          className="absolute top-1/2 transform -translate-y-1/2 w-3 h-3 bg-blue-400 rounded-full shadow-lg"
-                          style={{
-                            animation: 'moveDotRight 1s ease-in-out',
-                          }}
-                        ></div>
-                      )}
-                    </div>
-                    {/* Label */}
-                    <div className="mt-4 text-center">
-                      <div className="text-blue-300 text-sm font-mono bg-slate-700 bg-opacity-50 px-4 py-2 rounded inline-block min-w-[300px] whitespace-nowrap">
-                        {line.label}
-                      </div>
-                      {line.flags.length > 0 && (
-                        <div className="mt-1 flex justify-center gap-1 flex-wrap">
-                          {line.flags.map((flag, idx) => (
-                            <span
-                              key={idx}
-                              className="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold"
-                            >
-                              {flag}
-                            </span>
-                          ))}
+                      <div className="absolute top-1/2 left-0 right-0 h-1 bg-gradient-to-r from-blue-500/30 to-green-500/30 rounded-full"></div>
+                      
+                      {/* Animated Packet */}
+                      <div
+                        className="absolute top-1/2 transform -translate-y-1/2 -translate-x-1/2"
+                        style={{
+                          animation: 'moveDotRight 1.8s ease-in-out',
+                        }}
+                      >
+                        <div className="relative">
+                          {/* Packet glow effect */}
+                          <div className="absolute inset-0 bg-blue-400 rounded-lg blur-xl opacity-60 animate-pulse"></div>
+                          {/* Packet body */}
+                          <div className="relative bg-gradient-to-r from-blue-500 to-blue-600 px-6 py-3 rounded-lg shadow-2xl border-2 border-blue-300">
+                            <div className="text-white font-bold text-sm whitespace-nowrap">
+                              {line.label}
+                            </div>
+                            {line.flags.length > 0 && (
+                              <div className="mt-1 flex gap-1">
+                                {line.flags.map((flag, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="bg-blue-700 text-white px-2 py-0.5 rounded text-xs font-bold"
+                                  >
+                                    {flag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          {/* Arrow head on packet */}
+                          <div className="absolute top-1/2 -right-3 transform -translate-y-1/2">
+                            <div className="w-0 h-0 border-t-[12px] border-t-transparent border-b-[12px] border-b-transparent border-l-[12px] border-l-blue-600"></div>
+                          </div>
                         </div>
-                      )}
+                      </div>
                     </div>
                   </div>
-                  <div className="w-1/3"></div>
                 </div>
               ) : (
                 // Right to Left Arrow
                 <div className="flex items-center gap-2">
-                  <div className="w-1/3"></div>
                   <div className="flex-1 relative">
-                    <div className={`relative ${line.animate ? 'animate-pulse' : ''}`}>
+                    <div className="relative">
                       {/* Arrow Line */}
-                      <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-gradient-to-r from-green-400 to-blue-400"></div>
-                      {/* Arrow Head */}
-                      <div className="absolute top-1/2 left-0 transform -translate-y-1/2">
-                        <div className="w-0 h-0 border-t-8 border-t-transparent border-b-8 border-b-transparent border-r-8 border-r-blue-400"></div>
-                      </div>
-                      {/* Animated Dot */}
-                      {line.animate && (
-                        <div
-                          className="absolute top-1/2 right-0 transform -translate-y-1/2 w-3 h-3 bg-green-400 rounded-full shadow-lg"
-                          style={{
-                            animation: 'moveDotLeft 1s ease-in-out',
-                          }}
-                        ></div>
-                      )}
-                    </div>
-                    {/* Label */}
-                    <div className="mt-4 text-center">
-                      <div className="text-green-300 text-sm font-mono bg-slate-700 bg-opacity-50 px-4 py-2 rounded inline-block min-w-[300px] whitespace-nowrap">
-                        {line.label}
-                      </div>
-                      {line.flags.length > 0 && (
-                        <div className="mt-1 flex justify-center gap-1 flex-wrap">
-                          {line.flags.map((flag, idx) => (
-                            <span
-                              key={idx}
-                              className="bg-green-600 text-white px-2 py-0.5 rounded text-xs font-bold"
-                            >
-                              {flag}
-                            </span>
-                          ))}
+                      <div className="absolute top-1/2 left-0 right-0 h-1 bg-gradient-to-r from-green-500/30 to-blue-500/30 rounded-full"></div>
+                      
+                      {/* Animated Packet */}
+                      <div
+                        className="absolute top-1/2 transform -translate-y-1/2 translate-x-1/2"
+                        style={{
+                          animation: 'moveDotLeft 1.8s ease-in-out',
+                        }}
+                      >
+                        <div className="relative">
+                          {/* Packet glow effect */}
+                          <div className="absolute inset-0 bg-green-400 rounded-lg blur-xl opacity-60 animate-pulse"></div>
+                          {/* Packet body */}
+                          <div className="relative bg-gradient-to-r from-green-600 to-green-500 px-6 py-3 rounded-lg shadow-2xl border-2 border-green-300">
+                            <div className="text-white font-bold text-sm whitespace-nowrap">
+                              {line.label}
+                            </div>
+                            {line.flags.length > 0 && (
+                              <div className="mt-1 flex gap-1">
+                                {line.flags.map((flag, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="bg-green-700 text-white px-2 py-0.5 rounded text-xs font-bold"
+                                  >
+                                    {flag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          {/* Arrow head on packet */}
+                          <div className="absolute top-1/2 -left-3 transform -translate-y-1/2">
+                            <div className="w-0 h-0 border-t-[12px] border-t-transparent border-b-[12px] border-b-transparent border-r-[12px] border-r-green-500"></div>
+                          </div>
                         </div>
-                      )}
+                      </div>
                     </div>
                   </div>
-                  <div className="w-1/3"></div>
                 </div>
               )}
             </div>
@@ -243,51 +227,46 @@ const PacketFlowDiagram: React.FC<PacketFlowDiagramProps> = ({ currentPacket, pa
       </div>
 
       <style jsx>{`
-        @keyframes slideIn {
-          from {
-            opacity: 0;
-            transform: translateY(-20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
         @keyframes moveDotRight {
-          from {
+          0% {
             left: 0%;
+            opacity: 0;
+            transform: translateY(-50%) translateX(-50%) scale(0.8);
           }
-          to {
+          10% {
+            opacity: 1;
+            transform: translateY(-50%) translateX(-50%) scale(1);
+          }
+          90% {
+            opacity: 1;
+            transform: translateY(-50%) translateX(-50%) scale(1);
+          }
+          100% {
             left: 100%;
+            opacity: 0;
+            transform: translateY(-50%) translateX(-50%) scale(0.8);
           }
         }
 
         @keyframes moveDotLeft {
-          from {
+          0% {
             right: 0%;
+            opacity: 0;
+            transform: translateY(-50%) translateX(50%) scale(0.8);
           }
-          to {
+          10% {
+            opacity: 1;
+            transform: translateY(-50%) translateX(50%) scale(1);
+          }
+          90% {
+            opacity: 1;
+            transform: translateY(-50%) translateX(50%) scale(1);
+          }
+          100% {
             right: 100%;
+            opacity: 0;
+            transform: translateY(-50%) translateX(50%) scale(0.8);
           }
-        }
-
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 8px;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: #1e293b;
-          border-radius: 4px;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #475569;
-          border-radius: 4px;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #64748b;
         }
       `}</style>
     </div>
