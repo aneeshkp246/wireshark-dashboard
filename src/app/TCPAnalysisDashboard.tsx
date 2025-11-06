@@ -200,9 +200,8 @@ const CombinedSecurityDashboard = () => {
       sourceAnalysis[source].timeSpan.min = Math.min(sourceAnalysis[source].timeSpan.min, conn.relStart);
       sourceAnalysis[source].timeSpan.max = Math.max(sourceAnalysis[source].timeSpan.max, conn.relStart);
       
-      if (conn.duration < 5 && conn.bytes < 3000) {
-        sourceAnalysis[source].failedConnections++;
-      }
+      // Mark all SSH connections as failed (brute force attack assumption)
+      sourceAnalysis[source].failedConnections++;
     });
 
     const bruteForceDetections = [];
@@ -212,7 +211,8 @@ const CombinedSecurityDashboard = () => {
       const avgBytes = data.attempts.reduce((sum, a) => sum + a.bytes, 0) / data.totalConnections;
       const timeSpan = data.timeSpan.max - data.timeSpan.min;
       const attemptsPerSecond = data.totalConnections / (timeSpan || 1);
-      const failureRate = (data.failedConnections / data.totalConnections) * 100;
+      // All SSH connections are treated as failed brute force attempts
+      const failureRate = 100;
       
       const isBruteForce = 
         data.totalConnections >= 5 &&
@@ -225,9 +225,9 @@ const CombinedSecurityDashboard = () => {
           source,
           target: data.target,
           totalAttempts: data.totalConnections,
-          failedAttempts: data.failedConnections,
-          successfulAttempts: data.totalConnections - data.failedConnections,
-          failureRate: failureRate.toFixed(1),
+          failedAttempts: data.totalConnections, // All attempts are failed
+          successfulAttempts: 0, // No successful attempts
+          failureRate: '100.0', // Always 100% failure rate
           avgDuration: avgDuration.toFixed(2),
           avgBytes: avgBytes.toFixed(0),
           timeSpan: timeSpan.toFixed(2),
@@ -495,12 +495,12 @@ const CombinedSecurityDashboard = () => {
               </div>
               <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
                 <div className="text-slate-400 text-sm mb-1">AWS Metadata</div>
-                <div className="text-red-400 text-2xl font-bold">{httpAnalysis.summary.suspiciousPatterns.awsMetadata}</div>
+                <div className="text-red-400 text-2xl font-bold">{httpAnalysis.summary.metadataRequests}</div>
               </div>
             </div>
 
             {/* Suspicious HTTP Activity */}
-            {(httpAnalysis.summary.suspiciousPatterns.metadataAPI > 0 || httpAnalysis.summary.suspiciousPatterns.cloudInit > 0) && (
+            {(httpAnalysis.summary.suspiciousPatterns.metadataAPI > 0) && (
               <div className="bg-red-900 bg-opacity-30 border-2 border-red-500 rounded-lg p-6 mb-4">
                 <div className="flex items-center gap-3 mb-4">
                   <AlertTriangle className="w-8 h-8 text-red-400" />
@@ -509,18 +509,14 @@ const CombinedSecurityDashboard = () => {
                     <p className="text-red-300 text-sm">Cloud metadata API access attempts detected</p>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="bg-slate-800 bg-opacity-50 rounded p-4">
                     <div className="text-red-400 text-sm mb-1">Metadata API Requests</div>
-                    <div className="text-white text-2xl font-bold">{httpAnalysis.summary.suspiciousPatterns.metadataAPI}</div>
+                    <div className="text-white text-2xl font-bold">{httpAnalysis.summary.metadataRequests}</div>
                   </div>
                   <div className="bg-slate-800 bg-opacity-50 rounded p-4">
                     <div className="text-red-400 text-sm mb-1">AWS Metadata (169.254.169.254)</div>
-                    <div className="text-white text-2xl font-bold">{httpAnalysis.summary.suspiciousPatterns.awsMetadata}</div>
-                  </div>
-                  <div className="bg-slate-800 bg-opacity-50 rounded p-4">
-                    <div className="text-red-400 text-sm mb-1">Cloud-Init Requests</div>
-                    <div className="text-white text-2xl font-bold">{httpAnalysis.summary.suspiciousPatterns.cloudInit}</div>
+                    <div className="text-white text-2xl font-bold">{httpAnalysis.summary.metadataRequests}</div>
                   </div>
                 </div>
               </div>
@@ -562,7 +558,6 @@ const CombinedSecurityDashboard = () => {
                         <span className="text-green-300">{req.dstIP}:{req.dstPort}</span>
                       </div>
                       <div className="text-slate-300 text-sm mb-2">
-                        <ExternalLink className="w-4 h-4 inline mr-1" />
                         <span className="font-semibold">{req.host || 'Unknown Host'}</span>
                         <span className="text-yellow-300 ml-2">{req.uri}</span>
                       </div>
@@ -634,7 +629,7 @@ const CombinedSecurityDashboard = () => {
                   cx="50%"
                   cy="50%"
                   labelLine={false}
-                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                  label={false}
                   outerRadius={80}
                   fill="#8884d8"
                   dataKey="value"
@@ -644,6 +639,12 @@ const CombinedSecurityDashboard = () => {
                   ))}
                 </Pie>
                 <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569' }} />
+                <Legend 
+                  layout="vertical" 
+                  align="right" 
+                  verticalAlign="middle"
+                  wrapperStyle={{ paddingLeft: '20px' }}
+                />
               </PieChart>
             </ResponsiveContainer>
           </div>

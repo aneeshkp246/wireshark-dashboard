@@ -34,8 +34,9 @@ interface FlowLine {
 
 const PacketFlowDiagram: React.FC<PacketFlowDiagramProps> = ({ currentPacket, packets, currentIndex }) => {
   const [flowLines, setFlowLines] = useState<FlowLine[]>([]);
-  const [leftDevice, setLeftDevice] = useState<{ ip: string; label: string }>({ ip: '', label: 'Device A' });
-  const [rightDevice, setRightDevice] = useState<{ ip: string; label: string }>({ ip: '', label: 'Device B' });
+  // Default to the requested IPs and friendly labels
+  const [leftDevice, setLeftDevice] = useState<{ ip: string; label: string }>({ ip: '192.168.56.1', label: 'Client' });
+  const [rightDevice, setRightDevice] = useState<{ ip: string; label: string }>({ ip: '192.168.56.101', label: 'Server' });
 
   useEffect(() => {
     if (!currentPacket) return;

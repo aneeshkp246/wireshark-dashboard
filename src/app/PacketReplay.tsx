@@ -52,7 +52,6 @@ const PacketReplay = () => {
   const [filterProtocol, setFilterProtocol] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [showPayload, setShowPayload] = useState(true);
-  const [httpURIFilter, setHttpURIFilter] = useState('');
   
   const animationRef = useRef<number | null>(null);
   const lastUpdateRef = useRef<number>(0);
@@ -146,13 +145,6 @@ const PacketReplay = () => {
         p.protocol.toLowerCase().includes(term) ||
         p.info.toLowerCase().includes(term) ||
         (p.httpPath && p.httpPath.toLowerCase().includes(term))
-      );
-    }
-    
-    // HTTP URI filter (like Wireshark's http.request.uri contains)
-    if (httpURIFilter) {
-      filtered = filtered.filter(p => 
-        p.httpPath && p.httpPath.toLowerCase().includes(httpURIFilter.toLowerCase())
       );
     }
     
@@ -397,27 +389,6 @@ const PacketReplay = () => {
             >
               {showPayload ? 'Hide' : 'Show'} Payload
             </button>
-          </div>
-          
-          {/* HTTP URI Filter (like Wireshark) */}
-          <div className="flex items-center gap-2 pt-2 border-t border-slate-700">
-            <Code className="w-5 h-5 text-green-400" />
-            <span className="text-slate-400 text-sm">HTTP URI contains:</span>
-            <input
-              type="text"
-              placeholder='e.g. "meta-data" or "api"'
-              value={httpURIFilter}
-              onChange={(e) => setHttpURIFilter(e.target.value)}
-              className="flex-1 bg-slate-700 text-white px-4 py-2 rounded-lg border border-slate-600 focus:border-green-500 focus:outline-none text-sm"
-            />
-            {httpURIFilter && (
-              <button
-                onClick={() => setHttpURIFilter('')}
-                className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm"
-              >
-                Clear
-              </button>
-            )}
           </div>
         </div>
 
