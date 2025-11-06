@@ -9,6 +9,7 @@ const CombinedSecurityDashboard = () => {
   const [portScanAnalysis, setPortScanAnalysis] = useState(null);
   const [bruteForceAnalysis, setBruteForceAnalysis] = useState(null);
   const [httpAnalysis, setHttpAnalysis] = useState(null);
+  const [dosAnalysis, setDosAnalysis] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -53,6 +54,7 @@ const CombinedSecurityDashboard = () => {
       setData(parsedData);
       analyzePortScanning(parsedData);
       analyzeSSHBruteForce(parsedData);
+      analyzeDosAttacks(parsedData);
       
       // Set loading to false FIRST so dashboard shows immediately
       setLoading(false);
@@ -274,6 +276,143 @@ const CombinedSecurityDashboard = () => {
     });
   };
 
+  const analyzeDosAttacks = (tcpData) => {
+    // Analyze for DoS attacks based on:
+    // 1. High packet rate from a single source
+    // 2. Large number of connections in a short time period
+    // 3. High volume of traffic to specific targets
+    
+    const sourceAnalysis = {};
+    
+    // Group connections by source IP
+    tcpData.forEach(conn => {
+      const source = conn.addressA;
+      
+      if (!sourceAnalysis[source]) {
+        sourceAnalysis[source] = {
+          connections: [],
+          totalPackets: 0,
+          totalBytes: 0,
+          targets: new Set(),
+          firstSeen: conn.relStart,
+          lastSeen: conn.relStart
+        };
+      }
+      
+      sourceAnalysis[source].connections.push(conn);
+      sourceAnalysis[source].totalPackets += conn.packets;
+      sourceAnalysis[source].totalBytes += conn.bytes;
+      sourceAnalysis[source].targets.add(conn.addressB);
+      sourceAnalysis[source].firstSeen = Math.min(sourceAnalysis[source].firstSeen, conn.relStart);
+      sourceAnalysis[source].lastSeen = Math.max(sourceAnalysis[source].lastSeen, conn.relStart + conn.duration);
+    });
+    
+    const dosDetections = [];
+    
+    // Analyze each source for DoS patterns
+    Object.entries(sourceAnalysis).forEach(([source, data]) => {
+      const timeSpan = data.lastSeen - data.firstSeen;
+      const connectionCount = data.connections.length;
+      const packetRate = timeSpan > 0 ? data.totalPackets / timeSpan : 0;
+      const connectionRate = timeSpan > 0 ? connectionCount / timeSpan : 0;
+      
+      // DoS detection criteria:
+      // 1. High packet rate (> 50 packets/sec)
+      // 2. Many connections in short time (> 20 connections)
+      // 3. Sustained activity over time
+      
+      let confidence = 0;
+      const reasons = [];
+      
+      // Check packet rate
+      if (packetRate > 70) {
+        confidence += 40;
+        reasons.push(`High packet rate: ${packetRate.toFixed(1)} packets/sec`);
+      } else if (packetRate > 50) {
+        confidence += 25;
+        reasons.push(`Elevated packet rate: ${packetRate.toFixed(1)} packets/sec`);
+      }
+      
+      // Check connection volume
+      if (connectionCount > 30) {
+        confidence += 30;
+        reasons.push(`High connection count: ${connectionCount} connections`);
+      } else if (connectionCount > 20) {
+        confidence += 20;
+        reasons.push(`Elevated connection count: ${connectionCount} connections`);
+      }
+      
+      // Check time span
+      if (timeSpan > 10 && timeSpan < 60) {
+        confidence += 20;
+        reasons.push(`Sustained attack: ${timeSpan.toFixed(1)} seconds`);
+      } else if (timeSpan > 5) {
+        confidence += 10;
+        reasons.push(`Attack duration: ${timeSpan.toFixed(1)} seconds`);
+      }
+      
+      // Check total packet volume
+      if (data.totalPackets > 1000) {
+        confidence += 10;
+        reasons.push(`High packet volume: ${data.totalPackets} packets`);
+      }
+      
+      // If confidence is high enough, mark as DoS attack
+      if (confidence >= 50) {
+        const mainTarget = [...data.targets].sort((a, b) => {
+          const aCount = data.connections.filter(c => c.addressB === a).length;
+          const bCount = data.connections.filter(c => c.addressB === b).length;
+          return bCount - aCount;
+        })[0];
+        
+        const targetConnections = data.connections.filter(c => c.addressB === mainTarget);
+        const targetPackets = targetConnections.reduce((sum, c) => sum + c.packets, 0);
+        
+        dosDetections.push({
+          source,
+          target: mainTarget,
+          totalConnections: connectionCount,
+          totalPackets: data.totalPackets,
+          totalBytes: data.totalBytes,
+          firstSeen: new Date(data.firstSeen * 1000).toISOString(),
+          lastSeen: new Date(data.lastSeen * 1000).toISOString(),
+          timeSpan: timeSpan.toFixed(2),
+          packetRate: packetRate.toFixed(1),
+          connectionRate: connectionRate.toFixed(2),
+          uniqueTargets: data.targets.size,
+          confidence: Math.min(confidence, 100).toFixed(1),
+          severity: confidence >= 80 ? 'CRITICAL' : confidence >= 65 ? 'HIGH' : 'MEDIUM',
+          reasons
+        });
+      }
+    });
+    
+    // Sort by confidence
+    dosDetections.sort((a, b) => parseFloat(b.confidence) - parseFloat(a.confidence));
+    
+    // Create timeline for DoS attacks
+    const timeline = tcpData
+      .filter(conn => dosDetections.some(dos => dos.source === conn.addressA))
+      .sort((a, b) => a.relStart - b.relStart)
+      .reduce((acc, conn) => {
+        const bucket = Math.floor(conn.relStart / 5) * 5; // 5-second buckets
+        const existing = acc.find(t => t.time === bucket);
+        if (existing) {
+          existing.packets += conn.packets;
+          existing.connections++;
+        } else {
+          acc.push({ time: bucket, packets: conn.packets, connections: 1 });
+        }
+        return acc;
+      }, []);
+    
+    setDosAnalysis({
+      dosDetections,
+      timeline,
+      totalAttacks: dosDetections.length
+    });
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-900">
@@ -300,7 +439,7 @@ const CombinedSecurityDashboard = () => {
     { name: 'Huge (>100KB)', value: portScanAnalysis.sizeDistribution.huge }
   ];
 
-  const totalThreats = portScanAnalysis.scanners.length + bruteForceAnalysis.bruteForceDetections.length;
+  const totalThreats = portScanAnalysis.scanners.length + bruteForceAnalysis.bruteForceDetections.length + (dosAnalysis?.totalAttacks || 0);
   const hasThreats = totalThreats > 0;
 
   return (
@@ -342,6 +481,16 @@ const CombinedSecurityDashboard = () => {
                 <div className="text-3xl font-bold text-red-400">{bruteForceAnalysis.bruteForceDetections.length}</div>
                 <div className="text-slate-300 text-sm">Attack source(s)</div>
               </div>
+              {dosAnalysis && dosAnalysis.totalAttacks > 0 && (
+                <div className="bg-slate-800 bg-opacity-50 rounded p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Activity className="w-5 h-5 text-purple-400" />
+                    <span className="text-white font-semibold">DoS Attacks</span>
+                  </div>
+                  <div className="text-3xl font-bold text-purple-400">{dosAnalysis.totalAttacks}</div>
+                  <div className="text-slate-300 text-sm">DoS attack(s) detected</div>
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -464,6 +613,80 @@ const CombinedSecurityDashboard = () => {
                       <div className="text-slate-400 text-xs mb-1">Attempts/Second</div>
                       <div className="text-yellow-400 text-2xl font-bold">{detection.attemptsPerSecond}</div>
                     </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* DoS Attack Detection */}
+        {dosAnalysis && dosAnalysis.dosDetections && dosAnalysis.dosDetections.length > 0 && (
+          <div className="mb-8">
+            <div className="bg-slate-800 rounded-lg p-6 border border-purple-500">
+              <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
+                <Activity className="w-6 h-6 text-purple-400" />
+                DoS (Denial of Service) Attacks Detected
+              </h2>
+              {dosAnalysis.dosDetections.map((attack, idx) => (
+                <div key={idx} className="bg-slate-900 rounded p-4 mb-4 border border-purple-400">
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <div className="text-white font-semibold text-lg mb-1">
+                        {attack.source} → {attack.target}
+                      </div>
+                      <div className="flex gap-2 items-center">
+                        <span className={`px-3 py-1 rounded text-xs font-bold ${
+                          attack.severity === 'CRITICAL' ? 'bg-red-500 text-white' :
+                          attack.severity === 'HIGH' ? 'bg-orange-500 text-white' :
+                          'bg-yellow-500 text-black'
+                        }`}>
+                          {attack.severity}
+                        </span>
+                        <span className="text-slate-400 text-sm">
+                          Confidence: {attack.confidence}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-slate-400 text-xs">Attack Duration</div>
+                      <div className="text-white font-bold">{attack.timeSpan}s</div>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
+                    <div className="bg-slate-800 bg-opacity-50 rounded p-3">
+                      <div className="text-slate-400 text-xs mb-1">Total Packets</div>
+                      <div className="text-purple-400 text-2xl font-bold">{attack.totalPackets}</div>
+                    </div>
+                    <div className="bg-slate-800 bg-opacity-50 rounded p-3">
+                      <div className="text-slate-400 text-xs mb-1">Connections</div>
+                      <div className="text-blue-400 text-2xl font-bold">{attack.totalConnections}</div>
+                    </div>
+                    <div className="bg-slate-800 bg-opacity-50 rounded p-3">
+                      <div className="text-slate-400 text-xs mb-1">Packet Rate</div>
+                      <div className="text-red-400 text-2xl font-bold">{attack.packetRate}/s</div>
+                    </div>
+                    <div className="bg-slate-800 bg-opacity-50 rounded p-3">
+                      <div className="text-slate-400 text-xs mb-1">Total Bytes</div>
+                      <div className="text-green-400 text-xl font-bold">{(attack.totalBytes / 1024).toFixed(1)}KB</div>
+                    </div>
+                    <div className="bg-slate-800 bg-opacity-50 rounded p-3">
+                      <div className="text-slate-400 text-xs mb-1">Targets</div>
+                      <div className="text-yellow-400 text-2xl font-bold">{attack.uniqueTargets}</div>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-800 bg-opacity-30 rounded p-3">
+                    <div className="text-slate-400 text-xs mb-2 font-semibold">Attack Evidence:</div>
+                    <ul className="text-slate-300 text-sm space-y-1">
+                      {attack.reasons.map((reason, ridx) => (
+                        <li key={ridx} className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span>{reason}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 </div>
               ))}
@@ -664,10 +887,39 @@ const CombinedSecurityDashboard = () => {
           </div>
         </div>
 
+        {/* DoS Attack Timeline */}
+        {dosAnalysis && dosAnalysis.timeline && dosAnalysis.timeline.length > 0 && (
+          <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-8">
+            <h2 className="text-xl font-bold text-white mb-4">DoS Attack Timeline (Packet Activity)</h2>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={dosAnalysis.timeline}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis 
+                  dataKey="time" 
+                  stroke="#9ca3af" 
+                  label={{ value: 'Time (seconds)', position: 'insideBottom', offset: -5 }}
+                />
+                <YAxis stroke="#9ca3af" />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569' }}
+                  formatter={(value, name) => {
+                    if (name === 'packets') return [value, 'Packets'];
+                    if (name === 'connections') return [value, 'Connections'];
+                    return [value, name];
+                  }}
+                />
+                <Legend />
+                <Line type="monotone" dataKey="packets" stroke="#a855f7" strokeWidth={2} name="Packets" />
+                <Line type="monotone" dataKey="connections" stroke="#3b82f6" strokeWidth={2} name="Connections" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
         {/* Attack Signatures */}
         <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-8">
           <h2 className="text-xl font-bold text-white mb-4">Attack Signatures Detected</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
                 <Target className="w-5 h-5 text-orange-400" />
@@ -716,6 +968,32 @@ const CombinedSecurityDashboard = () => {
                 </li>
               </ul>
             </div>
+            {dosAnalysis && dosAnalysis.totalAttacks > 0 && (
+              <div>
+                <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-purple-400" />
+                  DoS Attack Indicators
+                </h3>
+                <ul className="space-y-2 text-slate-300 text-sm">
+                  <li className="flex items-start gap-2">
+                    <span className="text-purple-400 mt-1">●</span>
+                    <span><strong>High packet rate</strong> overwhelming target</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-purple-400 mt-1">●</span>
+                    <span><strong>Sustained traffic flood</strong> from single source</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-purple-400 mt-1">●</span>
+                    <span><strong>Rapid connection bursts</strong> to single target</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-purple-400 mt-1">●</span>
+                    <span><strong>High volume traffic</strong> designed to exhaust resources</span>
+                  </li>
+                </ul>
+              </div>
+            )}
           </div>
         </div>
 
@@ -784,6 +1062,9 @@ const CombinedSecurityDashboard = () => {
               <ul className="list-disc list-inside space-y-1 text-sm">
                 <li>{portScanAnalysis.scanners.length} IP(s) showing port scanning behavior</li>
                 <li>{bruteForceAnalysis.bruteForceDetections.length} SSH brute force source(s) detected</li>
+                {dosAnalysis && dosAnalysis.totalAttacks > 0 && (
+                  <li className="text-purple-400 font-semibold">{dosAnalysis.totalAttacks} DoS attack(s) detected</li>
+                )}
                 <li>{portScanAnalysis.topPorts.length} different ports being targeted</li>
                 <li>{bruteForceAnalysis.totalSSHConnections > 0 
                   ? `${((bruteForceAnalysis.durationDistribution.veryShort / bruteForceAnalysis.totalSSHConnections) * 100).toFixed(1)}% SSH connections failed quickly`
