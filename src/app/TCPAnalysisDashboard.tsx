@@ -902,6 +902,10 @@ const CombinedSecurityDashboard = () => {
                 <YAxis stroke="#9ca3af" />
                 <Tooltip 
                   contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569' }}
+                  itemSorter={(item) => {
+                    // Return negative for packets to show it first, positive for connections
+                    return item.dataKey === 'packets' ? -1 : 1;
+                  }}
                   formatter={(value, name) => {
                     if (name === 'packets') return [value, 'Packets'];
                     if (name === 'connections') return [value, 'Connections'];

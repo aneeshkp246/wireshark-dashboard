@@ -310,11 +310,17 @@ const MAX_PACKET_LIMIT = 10000;
 
 export async function GET(request: NextRequest) {
   try {
-    const pcapFilePath = path.join(process.cwd(), 'public', 'capture_%Y%m%d_%H%M%S_00001_20251023142449.pcap');
+    const publicDir = path.join(process.cwd(), 'public');
     
-    if (!fs.existsSync(pcapFilePath)) {
-      return NextResponse.json({ error: 'PCAP file not found' }, { status: 404 });
+    // Find the first .pcap file in the public directory
+    const files = fs.readdirSync(publicDir);
+    const pcapFile = files.find(file => file.endsWith('.pcap'));
+    
+    if (!pcapFile) {
+      return NextResponse.json({ error: 'No PCAP file found in public directory' }, { status: 404 });
     }
+    
+    const pcapFilePath = path.join(publicDir, pcapFile);
 
     // Read the entire PCAP file
     const buffer = fs.readFileSync(pcapFilePath);
