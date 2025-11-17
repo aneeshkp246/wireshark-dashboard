@@ -213,15 +213,26 @@ export async function GET(request: NextRequest) {
   try {
     const publicDir = path.join(process.cwd(), 'public');
     
-    // Find the first .pcap file in the public directory
+    // Find all .pcap files in the public directory
     const files = fs.readdirSync(publicDir);
-    const pcapFile = files.find(file => file.endsWith('.pcap'));
+    const pcapFiles = files.filter(file => file.endsWith('.pcap'));
     
-    if (!pcapFile) {
+    if (pcapFiles.length === 0) {
       return NextResponse.json({ error: 'No PCAP file found in public directory' }, { status: 404 });
     }
     
+    // Sort by modification time (most recent first)
+    const pcapFilesWithStats = pcapFiles.map(file => {
+      const filePath = path.join(publicDir, file);
+      const stats = fs.statSync(filePath);
+      return { file, mtime: stats.mtime };
+    }).sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+    
+    const pcapFile = pcapFilesWithStats[0].file;
     const pcapFilePath = path.join(publicDir, pcapFile);
+    
+    console.log(`Using PCAP file: ${pcapFile} (modified: ${pcapFilesWithStats[0].mtime.toISOString()})`);
+    
     const buffer = fs.readFileSync(pcapFilePath);
     const httpRequests = parseHTTPFromPCAP(buffer);
 
